@@ -7,7 +7,314 @@
   <title>WallAR – WebXR</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/src/style.css" />
+  <style>
+/* ── RESET & TOKENS ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --primary: #F59064;
+  --secondary: #284F75;
+  --lightgrey: #F0F0F0;
+  --lightgrey2: #F7F7F7;
+  --darkgrey2: #6E6E6E;
+  --hint: #474747;
+  --grey: #AAAAAA;
+  --green: #52B46B;
+  --red: #DD5050;
+  --white: #ffffff;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --radius-xl: 32px;
+  --shadow-lg: 0 8px 40px rgba(40,79,117,0.18);
+  --font: 'Montserrat', sans-serif;
+}
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: #0a0a0f;
+  font-family: var(--font);
+}
+
+/* ── CANVASES ── */
+#threeCanvas {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  z-index: 1;
+}
+#brushCanvas {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  z-index: 2; cursor: crosshair; display: none;
+}
+
+/* ── ZONE LABELS ── */
+.zoneLabel {
+  position: fixed; z-index: 12; pointer-events: none;
+  font-size: 9px; font-weight: 700; letter-spacing: .4px;
+  text-transform: uppercase; color: #fff;
+  background: rgba(0,0,0,.55); backdrop-filter: blur(6px);
+  border-radius: 20px; padding: 3px 8px;
+  transform: translate(-50%,-50%); white-space: nowrap;
+  border: 1px solid rgba(255,255,255,.18);
+}
+
+/* ── XR RETICLE ── */
+#xrReticle {
+  position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 80px; height: 32px;
+  z-index: 12; pointer-events: none;
+  opacity: 0; transition: opacity .3s;
+}
+#xrReticle.visible { opacity: 1; }
+
+/* ── CROSSHAIR ── */
+#crosshair {
+  position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%,-50%);
+  z-index: 12; width: 56px; height: 56px;
+  pointer-events: none; opacity: 0; transition: opacity .4s;
+}
+#crosshair.visible { opacity: 1; }
+
+/* ── TAP HINT ── */
+#tapHint {
+  position: fixed; bottom: 110px; left: 50%;
+  transform: translateX(-50%); z-index: 11;
+  opacity: 0; transition: opacity .4s; white-space: nowrap;
+}
+#tapHint.visible { opacity: 1; }
+#tapHint span {
+  font-size: 12px; font-weight: 500; color: #fff;
+  background: rgba(17,17,17,.65); backdrop-filter: blur(12px);
+  padding: 8px 18px; border-radius: var(--radius-xl);
+  border: 1px solid rgba(255,255,255,.15); letter-spacing: .3px;
+}
+
+/* ── TOP BAR ── */
+#topBar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px 10px;
+  background: linear-gradient(to bottom, rgba(17,17,17,.6) 0%, transparent 100%);
+}
+#appLogo { display: flex; align-items: center; gap: 8px; }
+#appLogo svg { width: 26px; height: 26px; }
+#appLogoText { font-size: 16px; font-weight: 700; color: #fff; letter-spacing: -.3px; }
+#topRight { display: flex; align-items: center; gap: 8px; }
+.topPill {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 11px; border-radius: var(--radius-xl);
+  font-size: 10px; font-weight: 600; letter-spacing: .4px;
+  backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,.15);
+  color: #fff; background: rgba(17,17,17,.5); transition: all .25s; cursor: pointer;
+}
+.topPill.freeze-on { background: rgba(245,144,100,.2); border-color: rgba(245,144,100,.5); color: var(--primary); }
+.topPill.xr-active { background: rgba(82,180,107,.2); border-color: rgba(82,180,107,.5); color: #52B46B; }
+.topPill-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .7; }
+.topPill.freeze-on .topPill-dot,
+.topPill.xr-active .topPill-dot { animation: blink 1.4s infinite; }
+@keyframes blink { 0%,100%{opacity:.9} 50%{opacity:.2} }
+
+#zoneBadge {
+  display: none; align-items: center; gap: 4px;
+  padding: 4px 9px; border-radius: 20px;
+  background: rgba(40,79,117,.55); backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,.18);
+  font-size: 9px; font-weight: 700; color: #fff; letter-spacing: .4px; cursor: pointer;
+}
+#zoneBadge.visible { display: flex; }
+#zoneBadgeCount { font-size: 10px; font-weight: 700; color: var(--primary); }
+
+/* ── STATUS TOAST ── */
+#statusToast {
+  position: fixed; top: 68px; left: 50%; transform: translateX(-50%);
+  z-index: 19; display: flex; align-items: center; gap: 7px;
+  padding: 7px 16px; border-radius: var(--radius-xl);
+  font-size: 11px; font-weight: 500; color: rgba(255,255,255,.85);
+  background: rgba(17,17,17,.72); backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,.1); white-space: nowrap;
+  transition: all .3s; letter-spacing: .2px; pointer-events: none;
+}
+#statusDot { width: 6px; height: 6px; border-radius: 50%; background: var(--grey); flex-shrink: 0; transition: background .3s; }
+#statusToast.active #statusDot { background: var(--green); }
+#statusToast.xr #statusDot { background: #52B46B; animation: pulse .9s infinite; }
+#statusToast.sampling #statusDot { background: var(--primary); animation: pulse .8s infinite; }
+#statusToast.frozen #statusDot { background: var(--primary); }
+#statusToast.brush-add #statusDot { background: #4fc3f7; }
+#statusToast.brush-remove #statusDot { background: #ff7043; }
+#statusToast.error #statusDot { background: var(--red); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* ── XR PLANE INFO BAR ── */
+.xrInfoBar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 12px;
+  background: rgba(40,79,117,.09); border-radius: var(--radius-sm);
+  margin-bottom: 8px; border: 1px solid rgba(40,79,117,.15);
+}
+#xrPlaneDot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--grey); flex-shrink: 0; transition: background .3s;
+}
+.xrInfoBar.active #xrPlaneDot { background: var(--green); animation: pulse .9s infinite; }
+.xrInfoBar.found #xrPlaneDot { background: var(--green); }
+#xrPlaneText { font-size: 9px; font-weight: 600; color: var(--secondary); letter-spacing: .3px; }
+
+/* ── BOTTOM SHEET ── */
+#sheet {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
+  background: var(--white); border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  box-shadow: var(--shadow-lg); transition: height .35s cubic-bezier(.32,.72,0,1);
+  user-select: none; will-change: height;
+}
+#sheetHandle { width: 100%; padding: 12px 0 6px; cursor: grab; display: flex; flex-direction: column; align-items: center; }
+#sheetHandle:active { cursor: grabbing; }
+#handleBar { width: 38px; height: 4px; border-radius: 3px; background: var(--lightgrey); }
+
+#quickRow { display: flex; align-items: center; gap: 8px; padding: 0 16px 12px; }
+.qBtn {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
+  padding: 11px 6px; border-radius: var(--radius-md); border: none; cursor: pointer;
+  font-family: var(--font); font-size: 11px; font-weight: 600;
+  transition: all .2s; letter-spacing: .2px;
+}
+.qBtn:active { transform: scale(.96); }
+.qBtn-primary { background: var(--secondary); color: #fff; }
+.qBtn-ghost { background: var(--lightgrey2); color: var(--hint); }
+.qBtn-ghost:hover { background: var(--lightgrey); }
+.qBtn-freeze { background: var(--lightgrey2); color: var(--secondary); }
+.qBtn-freeze.active { background: rgba(245,144,100,.15); color: var(--primary); border: 1.5px solid rgba(245,144,100,.4); }
+.qBtn.active { background: rgba(40,79,117,.12); color: var(--secondary); border: 1.5px solid rgba(40,79,117,.25); }
+.qBtn-icon { font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center; }
+
+#sheetContent { overflow-y: auto; padding: 0 16px 24px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+#sheetContent::-webkit-scrollbar { display: none; }
+
+.sectionLabel {
+  font-size: 9px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+  color: var(--grey); margin: 14px 0 8px; display: flex; align-items: center; gap: 7px;
+}
+.sectionLabel::after { content: ''; flex: 1; height: 1px; background: var(--lightgrey); }
+
+/* ── ZONES ── */
+#zonesSection { margin-bottom: 4px; }
+#zonesRow { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 8px; scrollbar-width: none; align-items: center; }
+#zonesRow::-webkit-scrollbar { display: none; }
+.zoneCard {
+  flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  cursor: pointer; padding: 6px 8px; border-radius: var(--radius-md); border: 2px solid transparent;
+  transition: all .2s; min-width: 54px; position: relative;
+}
+.zoneCard:active { transform: scale(.94); }
+.zoneCard.active { border-color: var(--secondary); background: rgba(40,79,117,.07); }
+.zoneColorDot { width: 36px; height: 36px; border-radius: 50%; border: 2.5px solid rgba(0,0,0,.08); flex-shrink: 0; }
+.zoneCard.active .zoneColorDot { box-shadow: 0 0 0 3px rgba(40,79,117,.25); }
+.zoneName { font-size: 8px; font-weight: 700; color: var(--darkgrey2); letter-spacing: .3px; max-width: 52px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zoneDeleteBtn {
+  position: absolute; top: 0; right: 0; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--red); border: none; color: #fff;
+  font-size: 8px; font-weight: 700; cursor: pointer; display: none;
+  align-items: center; justify-content: center; line-height: 1;
+}
+.zoneCard:hover .zoneDeleteBtn { display: flex; }
+.zoneAddCard {
+  flex-shrink: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 4px; cursor: pointer; padding: 6px 8px;
+  border-radius: var(--radius-md); border: 2px dashed var(--lightgrey);
+  min-width: 54px; transition: all .2s; background: var(--lightgrey2);
+}
+.zoneAddCard:hover { border-color: var(--secondary); background: rgba(40,79,117,.06); }
+.zoneAddIcon { width: 36px; height: 36px; border-radius: 50%; background: var(--lightgrey); display: flex; align-items: center; justify-content: center; font-size: 20px; color: var(--grey); font-weight: 300; line-height: 1; }
+.zoneAddText { font-size: 8px; font-weight: 700; color: var(--grey); letter-spacing: .3px; }
+
+/* XR plane highlight chip */
+.xrPlaneChip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 7px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
+  background: rgba(82,180,107,.15); color: #3a9e5a; border-radius: 10px; padding: 2px 6px;
+  border: 1px solid rgba(82,180,107,.3); margin-top: 2px;
+}
+
+/* ── SWATCHES ── */
+#colorRow { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 4px 0 8px; scrollbar-width: none; }
+#colorRow::-webkit-scrollbar { display: none; }
+.swatch { width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0; cursor: pointer; border: 3px solid transparent; transition: transform .2s, border-color .2s, box-shadow .2s; }
+.swatch.active { border-color: var(--secondary); transform: scale(1.15); box-shadow: 0 0 0 3px rgba(40,79,117,.15); }
+.swatch-custom { width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0; cursor: pointer; border: 2px dashed var(--lightgrey); background: conic-gradient(#f09,#f60,#ff0,#0f0,#09f,#0ff,#f09); overflow: hidden; position: relative; transition: transform .2s; }
+.swatch-custom:hover { transform: scale(1.08); }
+.swatch-custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+
+/* ── GLASS VARIANTS OVERLAY ── */
+#variantsOverlay {
+  display: none; position: absolute; bottom: 0; left: 0; right: 0; top: 0; z-index: 50;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: rgba(255,255,255,0.18); backdrop-filter: blur(28px); -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(255,255,255,0.35); overflow-y: auto; padding: 20px 18px 32px;
+  animation: glassIn .25s ease;
+}
+#variantsOverlay.visible { display: block; }
+@keyframes glassIn { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+.varGlassHandle { width: 38px; height: 4px; border-radius: 3px; background: rgba(255,255,255,.5); margin: 0 auto 16px; }
+.varHeader { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.varHeaderDot { width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0; box-shadow: 0 2px 12px rgba(0,0,0,.2); }
+.varHeaderName { font-size: 14px; font-weight: 700; color: #111; }
+.varHeaderHex { font-size: 10px; color: rgba(0,0,0,.45); font-family: monospace; margin-top: 2px; }
+.varSectionLbl { font-size: 9px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; color: rgba(0,0,0,.35); margin: 12px 0 7px; }
+.varRow { display: grid; grid-template-columns: repeat(6,1fr); gap: 6px; }
+.varChip { height: 44px; border-radius: 10px; cursor: pointer; border: 2.5px solid transparent; transition: transform .15s, border-color .15s; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+.varChip:active { transform: scale(.93); }
+.varChip.selected { border-color: #111; }
+.varActions { display: flex; gap: 10px; margin-top: 16px; }
+.varCancelBtn { flex: 1; padding: 13px; background: rgba(0,0,0,.08); color: #111; border: none; border-radius: 10px; font-family: var(--font); font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity .15s; }
+.varApplyBtn { flex: 2; padding: 13px; background: var(--secondary); color: #fff; border: none; border-radius: 10px; font-family: var(--font); font-size: 12px; font-weight: 700; cursor: pointer; transition: opacity .15s; }
+.varApplyBtn:active, .varCancelBtn:active { opacity: .8; }
+
+/* ── SLIDERS ── */
+.sliderWrap { display: flex; flex-direction: column; gap: 5px; }
+.sliderHeader { display: flex; justify-content: space-between; align-items: center; font-size: 10px; font-weight: 600; color: var(--darkgrey2); }
+.sliderHeader .val { background: var(--lightgrey2); border-radius: var(--radius-sm); padding: 2px 8px; font-size: 10px; font-weight: 700; color: var(--secondary); }
+input[type=range] { -webkit-appearance: none; width: 100%; height: 4px; background: var(--lightgrey); border-radius: 3px; outline: none; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--secondary); cursor: pointer; box-shadow: 0 2px 6px rgba(40,79,117,.3); border: 2px solid white; }
+#controlsRow { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 4px; }
+
+/* ── BRUSH TOOLBAR ── */
+#editToolbar { display: none; flex-direction: column; gap: 10px; padding: 12px; background: var(--lightgrey2); border-radius: var(--radius-md); border: 1.5px solid var(--lightgrey); margin-bottom: 4px; }
+#editToolbar.visible { display: flex; }
+.editToolbarTitle { font-size: 10px; font-weight: 700; color: var(--secondary); letter-spacing: .4px; text-transform: uppercase; }
+#brushBtns { display: flex; gap: 7px; }
+.brushBtn { flex: 1; padding: 9px; border-radius: var(--radius-sm); border: 1.5px solid var(--lightgrey); background: #fff; color: var(--darkgrey2); font-family: var(--font); font-size: 10px; font-weight: 600; cursor: pointer; transition: all .2s; text-align: center; }
+.brushBtn.add.active { background: rgba(79,195,247,.12); border-color: #4fc3f7; color: #1a8fbf; }
+.brushBtn.remove.active { background: rgba(221,80,80,.1); border-color: var(--red); color: var(--red); }
+.brushClose { flex: 0 0 38px !important; font-size: 14px; color: var(--grey) !important; }
+.brushSizeRow { display: flex; align-items: center; gap: 8px; font-size: 10px; font-weight: 600; color: var(--darkgrey2); }
+.brushSizeRow input { flex: 1; }
+#brushSizeVal { min-width: 24px; text-align: right; color: var(--secondary); font-weight: 700; }
+#editHint { font-size: 9px; color: var(--grey); text-align: center; font-style: italic; }
+
+/* ── BRUSH CURSOR ── */
+#brushCursor { position: fixed; border-radius: 50%; pointer-events: none; z-index: 13; display: none; transform: translate(-50%,-50%); }
+
+/* ── SPLASH ── */
+#splash { position: fixed; inset: 0; z-index: 100; background: var(--secondary); display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity .5s; }
+#splash.hidden { opacity: 0; pointer-events: none; }
+#splashBg { position: absolute; inset: 0; overflow: hidden; z-index: 0; }
+#splashBg::before { content: ''; position: absolute; width: 600px; height: 600px; border-radius: 50%; background: radial-gradient(circle, rgba(245,144,100,.25) 0%, transparent 70%); top: -100px; right: -150px; }
+#splashBg::after { content: ''; position: absolute; width: 400px; height: 400px; border-radius: 50%; background: radial-gradient(circle, rgba(245,144,100,.12) 0%, transparent 70%); bottom: -50px; left: -100px; }
+.splashInner { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; padding: 0 32px; text-align: center; }
+#splashIcon { width: 72px; height: 72px; border-radius: 24px; background: rgba(255,255,255,.12); display: flex; align-items: center; justify-content: center; margin-bottom: 24px; border: 1px solid rgba(255,255,255,.2); }
+#splashTitle { font-size: 32px; font-weight: 700; color: #fff; letter-spacing: -1px; margin-bottom: 10px; }
+#splashSub { font-size: 13px; font-weight: 500; color: rgba(255,255,255,.65); line-height: 1.7; max-width: 280px; margin-bottom: 20px; }
+#webxrBadge { display: flex; align-items: center; gap: 6px; padding: 5px 14px; background: rgba(82,180,107,.2); border: 1px solid rgba(82,180,107,.4); border-radius: 20px; font-size: 10px; font-weight: 600; color: rgba(255,255,255,.85); letter-spacing: .4px; margin-bottom: 28px; }
+#splashBtn { padding: 15px 40px; background: var(--primary); color: #fff; border: none; border-radius: var(--radius-xl); font-family: var(--font); font-size: 14px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 20px rgba(245,144,100,.4); transition: all .2s; }
+#splashFallback { margin-top: 14px; font-size: 11px; color: rgba(255,255,255,.5); font-style: italic; }
+
+/* ── SAVE TOAST ── */
+#saveToast { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 200; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px 32px; background: rgba(20,30,40,.9); backdrop-filter: blur(20px); border-radius: var(--radius-lg); border: 1px solid rgba(255,255,255,.15); color: #fff; font-size: 13px; font-weight: 600; pointer-events: none; opacity: 0; transition: opacity .3s; text-align: center; }
+#saveToast.show { opacity: 1; }
+#saveToastIcon { font-size: 32px; }
+  </style>
 </head>
 <body>
   <!-- Three.js canvas will be injected here -->
@@ -84,14 +391,11 @@
   <!-- ── XR CROSSHAIR / RETICLE ── -->
   <div id="crosshair" class="visible">
     <svg viewBox="0 0 56 56" fill="none">
-      <!-- Outer ring -->
       <circle cx="28" cy="28" r="24" stroke="rgba(255,255,255,.7)" stroke-width="1.5" stroke-dasharray="6 4"/>
-      <!-- Inner tick marks -->
       <line x1="28" y1="8"  x2="28" y2="16" stroke="white" stroke-width="2" stroke-linecap="round"/>
       <line x1="28" y1="40" x2="28" y2="48" stroke="white" stroke-width="2" stroke-linecap="round"/>
       <line x1="8"  y1="28" x2="16" y2="28" stroke="white" stroke-width="2" stroke-linecap="round"/>
       <line x1="40" y1="28" x2="48" y2="28" stroke="white" stroke-width="2" stroke-linecap="round"/>
-      <!-- Centre dot -->
       <circle cx="28" cy="28" r="4" fill="var(--primary)"/>
       <circle cx="28" cy="28" r="2" fill="white"/>
     </svg>
@@ -107,9 +411,6 @@
 
   <div id="tapHint"><span id="tapHintText">Pointez vers un mur et appuyez</span></div>
   <div id="statusToast"><div id="statusDot"></div><span id="statusText">Initialisation…</span></div>
-
-  <!-- ── PLANE DETECTION OVERLAY LABELS ── -->
-  <!-- Zone labels injected by JS -->
 
   <!-- ── BOTTOM SHEET ── -->
   <div id="sheet">
@@ -239,6 +540,861 @@
   <!-- Brush canvas (only active in edit mode) -->
   <canvas id="brushCanvas"></canvas>
 
-  <script type="module" src="/src/main.js"></script>
+  <!-- Three.js r163 CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  WallAR WebXR — main.js (inline)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Colour utilities ──────────────────────────────────────────────────────
+function hexToRGB(h) { return { r: parseInt(h.slice(1,3),16), g: parseInt(h.slice(3,5),16), b: parseInt(h.slice(5,7),16) }; }
+function rgbToLab(r,g,b) {
+  const lin = c => { c/=255; return c<=.04045 ? c/12.92 : Math.pow((c+.055)/1.055,2.4); };
+  const lr=lin(r),lg=lin(g),lb=lin(b);
+  const x=(lr*.4124564+lg*.3575761+lb*.1804375)/.95047;
+  const y=(lr*.2126729+lg*.7151522+lb*.0721750);
+  const z=(lr*.0193339+lg*.1191920+lb*.9503041)/1.08883;
+  const f=t=>t>.008856?Math.pow(t,1/3):(7.787*t+16/116);
+  const fx=f(x),fy=f(y),fz=f(z);
+  return { L:116*fy-16, a:500*(fx-fy), b:200*(fy-fz) };
+}
+function deltaE(l1,l2) { const dL=l1.L-l2.L,da=l1.a-l2.a,db=l1.b-l2.b; return Math.sqrt(dL*dL+da*da+db*db); }
+function hexToHsl(hex) {
+  let r=parseInt(hex.slice(1,3),16)/255,g=parseInt(hex.slice(3,5),16)/255,b=parseInt(hex.slice(5,7),16)/255;
+  const mx=Math.max(r,g,b),mn=Math.min(r,g,b); let h,s,l=(mx+mn)/2;
+  if(mx===mn){h=s=0;}else{const d=mx-mn;s=l>.5?d/(2-mx-mn):d/(mx+mn);switch(mx){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;case b:h=(r-g)/d+4;break;}h/=6;}
+  return [Math.round(h*360),Math.round(s*100),Math.round(l*100)];
+}
+function hslToHex(h,s,l) {
+  s/=100;l/=100;const k=n=>(n+h/30)%12,a=s*Math.min(l,1-l);const f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));
+  return '#'+[f(0),f(8),f(4)].map(x=>Math.round(x*255).toString(16).padStart(2,'0')).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════════════
+const state = {
+  xrSession:      null,
+  xrRefSpace:     null,
+  xrViewerSpace:  null,
+  hitTestSource:  null,
+  planeMap:       new Map(),
+  tolerance:      40,
+  opacity:        0.85,
+  editMode:       null,
+  brushSize:      30,
+  brushDown:      false,
+  frozen:         false,
+  pendingSample:  false,
+  isProcessing:   false,
+  zones:         [],
+  activeZoneId:  null,
+  cameraReady:   false,
+  webXrActive:   false,
+  fallbackMode:  false,
+  renderer:      null,
+  scene:         null,
+  camera:        null,
+};
+
+let zoneIdCounter = 0;
+let frameCount    = 0;
+const PROC_SCALE  = 0.5;
+const MASK_INTERVAL = 15;
+const ZONE_COLORS = ['#E8E4DC','#1155AA','#228833','#E86020','#663399','#CC2222','#009988','#E8A800'];
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  DOM REFS
+// ═══════════════════════════════════════════════════════════════════════════
+const threeCanvas   = document.getElementById('threeCanvas');
+const procCanvas    = document.getElementById('procCanvas');
+const brushCanvas   = document.getElementById('brushCanvas');
+const brushCursor   = document.getElementById('brushCursor');
+const crosshair     = document.getElementById('crosshair');
+const xrReticle     = document.getElementById('xrReticle');
+const tapHint       = document.getElementById('tapHint');
+const tapHintText   = document.getElementById('tapHintText');
+const statusToast   = document.getElementById('statusToast');
+const statusText    = document.getElementById('statusText');
+const freezePill    = document.getElementById('freezePill');
+const freezePillLbl = document.getElementById('freezePillLabel');
+const freezeQBtn    = document.getElementById('freezeQBtn');
+const editToolbar   = document.getElementById('editToolbar');
+const sheet         = document.getElementById('sheet');
+const variantsOverlay = document.getElementById('variantsOverlay');
+const zonesRow      = document.getElementById('zonesRow');
+const zoneBadge     = document.getElementById('zoneBadge');
+const zoneBadgeCount = document.getElementById('zoneBadgeCount');
+const xrPlaneInfo   = document.getElementById('xrPlaneInfo');
+const xrPlaneText   = document.getElementById('xrPlaneText');
+const xrBadge       = document.getElementById('xrBadge');
+const xrBadgeLabel  = document.getElementById('xrBadgeLabel');
+
+let procCtx = null;
+let scene, camera3, overlayTexture, overlayCanvas, overlayCtx;
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  FLUTTER BRIDGE
+// ═══════════════════════════════════════════════════════════════════════════
+function sendToFlutter(type, payload = {}) {
+  try {
+    if (window.FlutterBridge) window.FlutterBridge.postMessage(JSON.stringify({ type, ...payload }));
+  } catch (_) {}
+}
+window.receiveFromFlutter = function(json) {
+  try {
+    const data = JSON.parse(json);
+    if (data.type === 'colors') data.colors.forEach(c => addSwatchToRow(c.hex, c.name));
+    if (data.type === 'reset') resetAll();
+  } catch (_) {}
+};
+if (window.__pendingColors) { window.__pendingColors.forEach(c => addSwatchToRow(c.hex, c.name)); delete window.__pendingColors; }
+function notifyReady() { sendToFlutter('ready'); }
+
+// ── Utils ──
+function setStatus(msg, cls = '') {
+  statusText.textContent = msg;
+  statusToast.className = cls;
+}
+function addSwatchToRow(hex, name) {
+  if (document.querySelector(`.swatch[data-color="${hex}"]`)) return;
+  const sw = document.createElement('div');
+  sw.className = 'swatch'; sw.style.background = hex;
+  sw.dataset.color = hex; sw.dataset.name = name || hex; sw.title = name || hex;
+  sw.addEventListener('click', () => selectColor(hex, sw));
+  document.getElementById('colorRow').insertBefore(sw, document.querySelector('.swatch-custom'));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  SHEET DRAG
+// ═══════════════════════════════════════════════════════════════════════════
+const SHEET_PEEK = 92;
+let SHEET_MID    = 220;
+let SHEET_FULL   = Math.round(window.innerHeight * .92);
+let sheetDragStart = null, sheetHeightAtDragStart = 0;
+
+window.addEventListener('resize', () => {
+  SHEET_FULL = Math.round(window.innerHeight * .92);
+  state.zones.forEach(z => { z.mask = null; });
+});
+
+function setSheetHeight(h, animate = true) {
+  sheet.style.transition = animate ? 'height .35s cubic-bezier(.32,.72,0,1)' : 'none';
+  sheet.style.height = h + 'px';
+  document.getElementById('tapHint').style.bottom = (h + 18) + 'px';
+  const qh = document.getElementById('quickRow').offsetHeight;
+  const hh = document.getElementById('sheetHandle').offsetHeight;
+  document.getElementById('sheetContent').style.height = (h - qh - hh - 4) + 'px';
+}
+function snapSheet(h) {
+  if (h < (SHEET_PEEK + SHEET_MID) / 2) setSheetHeight(SHEET_PEEK);
+  else if (h < (SHEET_MID + SHEET_FULL) / 2) setSheetHeight(SHEET_MID);
+  else setSheetHeight(SHEET_FULL);
+}
+
+const handle = document.getElementById('sheetHandle');
+function onDragStart(e) {
+  if (variantsOverlay.classList.contains('visible')) return;
+  sheetDragStart = e.touches ? e.touches[0].clientY : e.clientY;
+  sheetHeightAtDragStart = sheet.getBoundingClientRect().height;
+  sheet.style.transition = 'none';
+}
+function onDragMove(e) {
+  if (sheetDragStart === null) return;
+  const cy = e.touches ? e.touches[0].clientY : e.clientY;
+  const nh = Math.max(SHEET_PEEK, Math.min(SHEET_FULL, sheetHeightAtDragStart + (sheetDragStart - cy)));
+  sheet.style.height = nh + 'px';
+}
+function onDragEnd() {
+  if (sheetDragStart === null) return;
+  snapSheet(sheet.getBoundingClientRect().height);
+  sheetDragStart = null;
+}
+handle.addEventListener('mousedown', onDragStart);
+window.addEventListener('mousemove', onDragMove);
+window.addEventListener('mouseup', onDragEnd);
+handle.addEventListener('touchstart', onDragStart, { passive: true });
+window.addEventListener('touchmove', onDragMove, { passive: true });
+window.addEventListener('touchend', onDragEnd);
+handle.addEventListener('click', () => {
+  if (variantsOverlay.classList.contains('visible')) return;
+  const h = sheet.getBoundingClientRect().height;
+  if (h <= SHEET_PEEK + 10) setSheetHeight(SHEET_MID);
+  else if (h >= SHEET_FULL - 20) setSheetHeight(SHEET_MID);
+  else setSheetHeight(SHEET_PEEK);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  VARIANTS OVERLAY
+// ═══════════════════════════════════════════════════════════════════════════
+let pendingVariantColor = null, selectedVariantColor = null;
+
+function generateVariants(hex) {
+  const [h, s, l] = hexToHsl(hex);
+  return {
+    lighter: Array.from({ length: 6 }, (_, i) => hslToHex(h, s, Math.min(92, l + (i+1)*7))),
+    darker:  Array.from({ length: 6 }, (_, i) => hslToHex(h, s, Math.max(8, l - (i+1)*8))),
+    warm:    Array.from({ length: 6 }, (_, i) => hslToHex((h + i*4) % 360, Math.min(100, s + i*3), Math.min(90, l + (i%2===0?2:-2)))),
+  };
+}
+function openVariantsOverlay(hex, name) {
+  pendingVariantColor = hex;
+  document.getElementById('varHeaderDot').style.background = hex;
+  document.getElementById('varHeaderName').textContent = name;
+  document.getElementById('varHeaderHex').textContent = hex.toUpperCase();
+  const v = generateVariants(hex);
+  buildVarRow('varLighter', v.lighter);
+  buildVarRow('varDarker',  v.darker);
+  buildVarRow('varWarm',    v.warm);
+  variantsOverlay.classList.add('visible');
+  setSheetHeight(SHEET_FULL);
+}
+function closeVariantsOverlay() { variantsOverlay.classList.remove('visible'); }
+function buildVarRow(id, hexes) {
+  const row = document.getElementById(id); row.innerHTML = '';
+  hexes.forEach(h => {
+    const chip = document.createElement('div');
+    chip.className = 'varChip'; chip.style.background = h;
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.varChip').forEach(c => c.classList.remove('selected'));
+      chip.classList.add('selected');
+      pendingVariantColor = h;
+      document.getElementById('varHeaderDot').style.background = h;
+      document.getElementById('varHeaderHex').textContent = h.toUpperCase();
+      applyColorToActiveZone(h);
+    });
+    row.appendChild(chip);
+  });
+}
+document.getElementById('varApplyBtn').addEventListener('click', () => {
+  const hex = pendingVariantColor || getActiveZoneColor();
+  applyColorToActiveZone(hex, true);
+  selectedVariantColor = hex;
+  closeVariantsOverlay();
+  setSheetHeight(SHEET_MID);
+  setStatus('Couleur appliquée ✓', 'active');
+  refreshZonesUI();
+  sendToFlutter('zoneUpdated', { zoneId: state.activeZoneId, color: hex });
+});
+document.getElementById('varCancelBtn').addEventListener('click', () => {
+  if (selectedVariantColor) applyColorToActiveZone(selectedVariantColor);
+  closeVariantsOverlay();
+  setSheetHeight(SHEET_MID);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  MULTI-WALL ZONES
+// ═══════════════════════════════════════════════════════════════════════════
+function getActiveZone()      { return state.zones.find(z => z.id === state.activeZoneId) || null; }
+function getActiveZoneColor() { const z = getActiveZone(); return z ? z.color : '#E8E4DC'; }
+function applyColorToActiveZone(hex, permanent = false) {
+  const z = getActiveZone(); if (!z) return;
+  z.color = hex;
+  if (z.labelEl) z.labelEl.style.borderLeft = '3px solid ' + hex;
+  if (permanent) refreshZonesUI();
+  state.isProcessing = false;
+  renderAllOverlays();
+}
+function createZone(color) {
+  const id = ++zoneIdCounter;
+  const W = Math.floor(window.innerWidth * PROC_SCALE);
+  const H = Math.floor(window.innerHeight * PROC_SCALE);
+  const zone = {
+    id, color: color || ZONE_COLORS[(id - 1) % ZONE_COLORS.length],
+    name: 'Zone ' + id,
+    sampledColor: null, sampledColorLab: null,
+    tapNX: -1, tapNY: -1,
+    mask: null, maskW: 0, maskH: 0,
+    brushMask: new Uint8Array(W * H),
+    labelEl: null, xrPlaneId: null, hitPose: null,
+  };
+  state.zones.push(zone);
+  state.activeZoneId = id;
+  refreshZonesUI(); updateZoneBadge();
+  return zone;
+}
+function deleteZone(id) {
+  const z = state.zones.find(z => z.id === id);
+  if (z && z.labelEl) z.labelEl.remove();
+  state.zones = state.zones.filter(z => z.id !== id);
+  if (state.activeZoneId === id)
+    state.activeZoneId = state.zones.length ? state.zones[state.zones.length - 1].id : null;
+  refreshZonesUI(); updateZoneBadge(); renderAllOverlays();
+}
+function setActiveZone(id) {
+  state.activeZoneId = id; refreshZonesUI();
+  const z = getActiveZone();
+  if (z && z.color) document.querySelectorAll('.swatch').forEach(s => s.classList.toggle('active', s.dataset.color === z.color));
+}
+function refreshZonesUI() {
+  const addCard = document.getElementById('addZoneCard');
+  document.querySelectorAll('.zoneCard').forEach(c => c.remove());
+  state.zones.forEach(zone => {
+    const card = document.createElement('div');
+    card.className = 'zoneCard' + (zone.id === state.activeZoneId ? ' active' : '');
+    card.dataset.id = zone.id;
+    card.innerHTML = `
+      <div class="zoneColorDot" style="background:${zone.color}"></div>
+      <span class="zoneName">${zone.name}</span>
+      ${zone.xrPlaneId ? '<span class="xrPlaneChip">XR</span>' : ''}
+      ${state.zones.length > 1 ? `<button class="zoneDeleteBtn" data-id="${zone.id}">✕</button>` : ''}
+    `;
+    card.addEventListener('click', e => { if (e.target.classList.contains('zoneDeleteBtn')) return; setActiveZone(zone.id); });
+    const delBtn = card.querySelector('.zoneDeleteBtn');
+    if (delBtn) delBtn.addEventListener('click', e => { e.stopPropagation(); deleteZone(zone.id); });
+    zonesRow.insertBefore(card, addCard);
+  });
+}
+function updateZoneBadge() {
+  const n = state.zones.length;
+  zoneBadgeCount.textContent = n;
+  zoneBadge.classList.toggle('visible', n > 0);
+}
+document.getElementById('addZoneCard').addEventListener('click', () => {
+  createZone(); startSamplingMode();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  EDGE MAP + FLOOD FILL
+// ═══════════════════════════════════════════════════════════════════════════
+function buildEdgeMap(pix, W, H) {
+  const edges = new Uint8Array(W * H);
+  const lum = i => 0.299 * pix[i] + 0.587 * pix[i+1] + 0.114 * pix[i+2];
+  let tot = 0, cnt = 0, step = Math.max(1, Math.floor(W * H / 4000));
+  for (let i = 0; i < W * H; i += step) { tot += lum(i * 4); cnt++; }
+  const ET = Math.max(12, Math.min(45, (tot / cnt) * 0.22));
+  for (let y = 1; y < H-1; y++) for (let x = 1; x < W-1; x++) {
+    const tl=lum(((y-1)*W+(x-1))*4),tc=lum(((y-1)*W+x)*4),tr=lum(((y-1)*W+(x+1))*4);
+    const ml=lum((y*W+(x-1))*4),mr=lum((y*W+(x+1))*4);
+    const bl=lum(((y+1)*W+(x-1))*4),bc=lum(((y+1)*W+x)*4),br=lum(((y+1)*W+(x+1))*4);
+    const gx=-tl-2*ml-bl+tr+2*mr+br, gy=-tl-2*tc-tr+bl+2*bc+br;
+    edges[y*W+x] = (Math.sqrt(gx*gx+gy*gy) > ET) ? 1 : 0;
+  }
+  return edges;
+}
+
+const DILATE_PASSES = 4, SEED_RADIUS = 6, SEED_STRIDE = 3;
+
+function getImageSource() {
+  return state.fallbackMode ? document.getElementById('videoEl') : threeCanvas;
+}
+
+function computeFloodFillMaskForZone(zone) {
+  if (!zone.sampledColor || zone.tapNX < 0) return;
+  const W = Math.floor(window.innerWidth  * PROC_SCALE);
+  const H = Math.floor(window.innerHeight * PROC_SCALE);
+  procCtx.drawImage(getImageSource(), 0, 0, W, H);
+  const imgData = procCtx.getImageData(0, 0, W, H), pix = imgData.data;
+  const edgeMap = buildEdgeMap(pix, W, H);
+  const mask = new Uint8Array(W * H), visited = new Uint8Array(W * H);
+  const cx0 = Math.min(W-1, Math.max(0, Math.round(zone.tapNX * W)));
+  const cy0 = Math.min(H-1, Math.max(0, Math.round(zone.tapNY * H)));
+  const tolLab = state.tolerance * .7, sLab = zone.sampledColorLab, seeds = [];
+  for (let dy = -SEED_RADIUS; dy <= SEED_RADIUS; dy += SEED_STRIDE)
+    for (let dx = -SEED_RADIUS; dx <= SEED_RADIUS; dx += SEED_STRIDE) {
+      const sx = Math.max(0, Math.min(W-1, cx0+dx)), sy = Math.max(0, Math.min(H-1, cy0+dy));
+      const si = (sy*W+sx)*4;
+      if (deltaE(sLab, rgbToLab(pix[si],pix[si+1],pix[si+2])) <= tolLab*.6) seeds.push({ x:sx, y:sy });
+    }
+  if (!seeds.length) seeds.push({ x:cx0, y:cy0 });
+  const DX=[1,-1,0,0], DY=[0,0,1,-1], stack = new Int32Array(W*H*2); let sp = 0;
+  for (const s of seeds) if (!visited[s.y*W+s.x]) { stack[sp++]=s.x; stack[sp++]=s.y; }
+  while (sp > 0) {
+    const cy = stack[--sp], cx = stack[--sp], ci = cy*W+cx;
+    if (visited[ci]) continue; visited[ci]=1; if (edgeMap[ci]) continue;
+    const pi = ci*4;
+    if (deltaE(sLab, rgbToLab(pix[pi],pix[pi+1],pix[pi+2])) > tolLab) continue;
+    mask[ci] = 1;
+    for (let d=0; d<4; d++) { const nx=cx+DX[d],ny=cy+DY[d]; if (nx>=0&&nx<W&&ny>=0&&ny<H&&!visited[ny*W+nx]) { stack[sp++]=nx; stack[sp++]=ny; } }
+  }
+  const eroded = new Uint8Array(W*H);
+  for (let y=1;y<H-1;y++) for (let x=1;x<W-1;x++) { const c=y*W+x; if(mask[c]) eroded[c]=(mask[c+1]+mask[c-1]+mask[c+W]+mask[c-W]>=2)?1:0; }
+  let current = eroded;
+  for (let p=0; p<DILATE_PASSES; p++) {
+    const next = new Uint8Array(W*H);
+    for (let y=1;y<H-1;y++) for (let x=1;x<W-1;x++) {
+      const c=y*W+x; if(current[c]){next[c]=1;continue;} if(edgeMap[c]) continue;
+      const pi=c*4; if(deltaE(sLab,rgbToLab(pix[pi],pix[pi+1],pix[pi+2]))>tolLab*1.8) continue;
+      if(current[c+1]+current[c-1]+current[c+W]+current[c-W]>=3) next[c]=1;
+    }
+    current = next;
+  }
+  if (zone.brushMask && zone.brushMask.length===W*H)
+    for (let i=0; i<current.length; i++) {
+      if (zone.brushMask[i]===1) current[i]=1;
+      else if (zone.brushMask[i]===2) current[i]=0;
+    }
+  zone.mask=current; zone.maskW=W; zone.maskH=H;
+  updateZoneLabel(zone);
+}
+
+function updateZoneLabel(zone) {
+  if (!zone.mask) return;
+  const W=zone.maskW, H=zone.maskH; let sx=0,sy=0,cnt=0;
+  for (let y=0;y<H;y+=4) for (let x=0;x<W;x+=4) { if(zone.mask[y*W+x]){sx+=x;sy+=y;cnt++;} }
+  if (!cnt) return;
+  const cx=sx/cnt/W*window.innerWidth, cy=sy/cnt/H*window.innerHeight;
+  if (!zone.labelEl) {
+    zone.labelEl = document.createElement('div');
+    zone.labelEl.className = 'zoneLabel';
+    document.body.appendChild(zone.labelEl);
+  }
+  zone.labelEl.textContent = zone.name;
+  zone.labelEl.style.left = cx + 'px';
+  zone.labelEl.style.top  = cy + 'px';
+  zone.labelEl.style.borderLeft = '3px solid ' + zone.color;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  THREE.JS OVERLAY
+// ═══════════════════════════════════════════════════════════════════════════
+function initThreeJS() {
+  scene   = new THREE.Scene();
+  camera3 = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+  state.renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, alpha: true, antialias: false });
+  state.renderer.setSize(window.innerWidth, window.innerHeight);
+  state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  // WebXR support
+  state.renderer.xr = state.renderer.xr || {};
+  try { state.renderer.xr.enabled = true; } catch(_) {}
+
+  overlayCanvas = document.createElement('canvas');
+  overlayCanvas.width  = window.innerWidth;
+  overlayCanvas.height = window.innerHeight;
+  overlayCtx = overlayCanvas.getContext('2d');
+
+  overlayTexture = new THREE.CanvasTexture(overlayCanvas);
+  const geo = new THREE.PlaneGeometry(2, 2);
+  const mat = new THREE.MeshBasicMaterial({ map: overlayTexture, transparent: true, depthWrite: false });
+  scene.add(new THREE.Mesh(geo, mat));
+
+  window.addEventListener('resize', () => {
+    state.renderer.setSize(window.innerWidth, window.innerHeight);
+    overlayCanvas.width  = window.innerWidth;
+    overlayCanvas.height = window.innerHeight;
+    procCanvas.width  = window.innerWidth;
+    procCanvas.height = window.innerHeight;
+    brushCanvas.width  = window.innerWidth;
+    brushCanvas.height = window.innerHeight;
+    state.zones.forEach(z => { z.mask = null; });
+  });
+}
+
+function initProcessingCanvas() {
+  procCanvas.width  = window.innerWidth;
+  procCanvas.height = window.innerHeight;
+  procCtx = procCanvas.getContext('2d', { willReadFrequently: true });
+  brushCanvas.width  = window.innerWidth;
+  brushCanvas.height = window.innerHeight;
+}
+
+function renderAllOverlays() {
+  if (!overlayCtx) return;
+  const OW = overlayCanvas.width, OH = overlayCanvas.height;
+  overlayCtx.clearRect(0, 0, OW, OH);
+  for (const zone of state.zones) {
+    if (!zone.mask) continue;
+    const W=zone.maskW, H=zone.maskH, mask=zone.mask;
+    const { r, g, b } = hexToRGB(zone.color);
+    const alpha = Math.floor(state.opacity * 220);
+    const scaleX=W/OW, scaleY=H/OH;
+    const outData = overlayCtx.createImageData(OW, OH), out = outData.data;
+    for (let oy=0;oy<OH;oy++) for (let ox=0;ox<OW;ox++) {
+      if (!mask[Math.floor(oy*scaleY)*W+Math.floor(ox*scaleX)]) continue;
+      const oi=(oy*OW+ox)*4; out[oi]=r; out[oi+1]=g; out[oi+2]=b; out[oi+3]=alpha;
+    }
+    const tmp=document.createElement('canvas'); tmp.width=OW; tmp.height=OH;
+    const tc=tmp.getContext('2d'); tc.putImageData(outData,0,0);
+    const blurred=document.createElement('canvas'); blurred.width=OW; blurred.height=OH;
+    const bc=blurred.getContext('2d'); bc.filter='blur(3px)'; bc.drawImage(tmp,0,0);
+    overlayCtx.drawImage(blurred,0,0);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  WEBXR
+// ═══════════════════════════════════════════════════════════════════════════
+async function checkWebXRSupport() {
+  if (!navigator.xr) return reportXRSupport(false, []);
+  const supported = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
+  if (!supported) return reportXRSupport(false, []);
+  reportXRSupport(true, ['hit-test','plane-detection']);
+  return true;
+}
+function reportXRSupport(supported, features) {
+  sendToFlutter('xrSupported', { supported, features });
+  if (supported) {
+    xrBadge.classList.add('xr-active');
+    xrBadgeLabel.textContent = 'WebXR';
+    xrPlaneInfo.classList.add('active');
+    xrPlaneText.textContent = 'WebXR prêt — pointez un mur';
+  } else {
+    xrBadgeLabel.textContent = 'Fallback';
+    xrPlaneInfo.classList.remove('active');
+    xrPlaneText.textContent = 'Mode caméra classique actif';
+  }
+}
+async function startXRSession() {
+  try {
+    const session = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['plane-detection', 'dom-overlay', 'local-floor'],
+      domOverlay: { root: document.body },
+    });
+    state.xrSession = session;
+    state.webXrActive = true;
+    state.xrRefSpace = await session.requestReferenceSpace('local-floor').catch(() => session.requestReferenceSpace('local'));
+    state.xrViewerSpace = await session.requestReferenceSpace('viewer');
+    state.hitTestSource = await session.requestHitTestSource({ space: state.xrViewerSpace });
+    session.addEventListener('end', onXRSessionEnd);
+    state.renderer.xr.setSession(session);
+    state.renderer.setAnimationLoop(xrRenderLoop);
+    setStatus('WebXR actif — pointez un mur et appuyez', 'xr');
+    xrReticle.classList.add('visible');
+    crosshair.classList.remove('visible');
+    tapHint.classList.add('visible');
+    tapHintText.textContent = 'Pointez un mur et appuyez';
+    document.getElementById('splash').classList.add('hidden');
+  } catch (err) {
+    console.warn('[WallAR] XR session failed, falling back to camera:', err);
+    startCameraFallback();
+  }
+}
+function onXRSessionEnd() {
+  state.xrSession = null; state.hitTestSource = null;
+  state.xrRefSpace = null; state.webXrActive = false;
+  state.planeMap.clear();
+  xrReticle.classList.remove('visible');
+  setStatus('Session WebXR terminée', 'active');
+}
+function xrRenderLoop(timestamp, xrFrame) {
+  if (!xrFrame) return;
+  frameCount++;
+  if (state.hitTestSource) {
+    const hits = xrFrame.getHitTestResults(state.hitTestSource);
+    if (hits.length > 0) {
+      const hit = hits[0];
+      const pose = hit.getPose(state.xrRefSpace);
+      if (pose) {
+        state.lastHitPose = pose;
+        xrReticle.classList.add('visible');
+        const pos = pose.transform.position;
+        const proj = projectWorldToScreen(pos, state.renderer.xr.getCamera(camera3));
+        if (proj) { xrReticle.style.left=(proj.x-40)+'px'; xrReticle.style.top=(proj.y-16)+'px'; xrReticle.style.transform='none'; }
+      }
+    } else { xrReticle.classList.remove('visible'); }
+  }
+  if (xrFrame.detectedPlanes) processDetectedPlanes(xrFrame.detectedPlanes, xrFrame);
+  if (!state.isProcessing && state.zones.length > 0 && (frameCount % MASK_INTERVAL === 0)) {
+    state.isProcessing = true; let updated = false;
+    for (const zone of state.zones) { if (zone.sampledColor && zone.tapNX >= 0) { computeFloodFillMaskForZone(zone); updated = true; } }
+    if (updated) renderAllOverlays();
+    state.isProcessing = false;
+  }
+  if (overlayTexture) overlayTexture.needsUpdate = true;
+  state.renderer.render(scene, camera3);
+}
+function processDetectedPlanes(planes, xrFrame) {
+  planes.forEach(plane => { if (!state.planeMap.has(plane)) state.planeMap.set(plane, { plane, firstSeen: Date.now() }); });
+  for (const [key] of state.planeMap) { if (!planes.has(key)) state.planeMap.delete(key); }
+  const total = state.planeMap.size;
+  if (total > 0) {
+    xrPlaneInfo.classList.remove('active'); xrPlaneInfo.classList.add('found');
+    xrPlaneText.textContent = `${total} plan${total > 1 ? 's' : ''} détecté${total > 1 ? 's' : ''}`;
+    sendToFlutter('planeDetected', { count: total });
+  } else {
+    xrPlaneInfo.classList.add('active'); xrPlaneInfo.classList.remove('found');
+    xrPlaneText.textContent = 'Recherche de surfaces verticales…';
+  }
+}
+function projectWorldToScreen(worldPos, xrCamera) {
+  try {
+    const v = new THREE.Vector3(worldPos.x, worldPos.y, worldPos.z);
+    v.project(xrCamera);
+    return { x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight };
+  } catch (_) { return null; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  CAMERA FALLBACK
+// ═══════════════════════════════════════════════════════════════════════════
+async function startCameraFallback() {
+  state.fallbackMode = true;
+  const video = document.createElement('video');
+  video.id = 'videoEl';
+  video.setAttribute('autoplay', ''); video.setAttribute('playsinline', ''); video.setAttribute('muted', '');
+  video.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;';
+  document.body.prepend(video);
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    video.srcObject = stream;
+    await new Promise(res => { video.onloadedmetadata = res; });
+    await video.play();
+    state.cameraReady = true;
+    setStatus('Mode caméra — appuyez sur une surface', 'active');
+    crosshair.classList.add('visible'); tapHint.classList.add('visible');
+    state.renderer.setAnimationLoop(fallbackRenderLoop);
+    document.getElementById('splash').classList.add('hidden');
+  } catch (err) { setStatus('Caméra refusée: ' + err.message, 'error'); }
+}
+function fallbackRenderLoop() {
+  frameCount++;
+  if (!state.cameraReady) return;
+  if (!state.isProcessing && state.zones.length > 0 && (frameCount % MASK_INTERVAL === 0)) {
+    state.isProcessing = true;
+    for (const zone of state.zones) { if (zone.sampledColor && zone.tapNX >= 0) computeFloodFillMaskForZone(zone); }
+    renderAllOverlays();
+    state.isProcessing = false;
+  }
+  if (overlayTexture) overlayTexture.needsUpdate = true;
+  state.renderer.render(scene, camera3);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  SAMPLING
+// ═══════════════════════════════════════════════════════════════════════════
+function samplePixelAt(clientX, clientY) {
+  const zone = getActiveZone(); if (!zone) return;
+  if (state.webXrActive && state.lastHitPose) zone.hitPose = state.lastHitPose;
+  const W = Math.floor(window.innerWidth  * PROC_SCALE);
+  const H = Math.floor(window.innerHeight * PROC_SCALE);
+  procCtx.drawImage(getImageSource(), 0, 0, W, H);
+  const px = Math.max(0, Math.min(W-1, Math.round(clientX * PROC_SCALE)));
+  const py = Math.max(0, Math.min(H-1, Math.round(clientY * PROC_SCALE)));
+  let rS=0,gS=0,bS=0,n=0;
+  for (let dy=-3;dy<=3;dy++) for (let dx=-3;dx<=3;dx++) {
+    const nx=Math.max(0,Math.min(W-1,px+dx)), ny=Math.max(0,Math.min(H-1,py+dy));
+    const d=procCtx.getImageData(nx,ny,1,1).data; rS+=d[0];gS+=d[1];bS+=d[2];n++;
+  }
+  const r=Math.round(rS/n), g=Math.round(gS/n), b=Math.round(bS/n);
+  zone.sampledColor    = { r, g, b };
+  zone.sampledColorLab = rgbToLab(r, g, b);
+  zone.tapNX = clientX / window.innerWidth;
+  zone.tapNY = clientY / window.innerHeight;
+  zone.brushMask = new Uint8Array(W * H);
+  state.pendingSample = false;
+  computeFloodFillMaskForZone(zone);
+  renderAllOverlays();
+  const hex = '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+  tapHint.classList.remove('visible'); crosshair.classList.remove('visible');
+  setStatus(`Zone ${zone.name} détectée`, 'frozen');
+  setSheetHeight(SHEET_MID); refreshZonesUI(); updateZoneBadge();
+  sendToFlutter('zoneSampled', { zoneId: zone.id, hex, name: zone.name });
+}
+function startSamplingMode() {
+  state.pendingSample = true; closeVariantsOverlay();
+  setStatus('Appuyez sur la surface à peindre…', 'sampling');
+  crosshair.classList.add('visible'); tapHint.classList.add('visible');
+  tapHintText.textContent = 'Appuyez sur la surface';
+  setSheetHeight(SHEET_PEEK);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  BRUSH
+// ═══════════════════════════════════════════════════════════════════════════
+function setBrushMode(mode) {
+  state.editMode = mode;
+  if (mode) {
+    brushCanvas.style.display = 'block'; crosshair.classList.remove('visible');
+    brushCursor.style.display = 'block'; updateBrushCursor();
+    setStatus(mode === 'add' ? 'Ajout — dessinez pour inclure' : 'Exclusion — dessinez pour exclure', 'brush-' + mode);
+    document.getElementById('btnBrushAdd').classList.toggle('active', mode === 'add');
+    document.getElementById('btnBrushRemove').classList.toggle('active', mode === 'remove');
+  } else {
+    brushCanvas.style.display = 'none'; brushCursor.style.display = 'none';
+    document.getElementById('btnBrushAdd').classList.remove('active');
+    document.getElementById('btnBrushRemove').classList.remove('active');
+    setStatus('Prêt', 'active');
+  }
+}
+function updateBrushCursor() {
+  const s = state.brushSize;
+  brushCursor.style.width  = s*2 + 'px'; brushCursor.style.height = s*2 + 'px';
+  brushCursor.style.border = state.editMode === 'add' ? '2px solid rgba(79,195,247,.85)' : '2px solid rgba(221,80,80,.85)';
+  brushCursor.style.background = state.editMode === 'add' ? 'rgba(79,195,247,.1)' : 'rgba(221,80,80,.08)';
+}
+function getBrushPos(e) { return e.touches ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : { x: e.clientX, y: e.clientY }; }
+function applyBrush(cx, cy) {
+  if (!state.editMode) return;
+  const zone = getActiveZone(); if (!zone) return;
+  const W=zone.maskW||Math.floor(window.innerWidth*PROC_SCALE), H=zone.maskH||Math.floor(window.innerHeight*PROC_SCALE);
+  if (!zone.brushMask||zone.brushMask.length!==W*H) zone.brushMask=new Uint8Array(W*H);
+  const bx=cx/window.innerWidth*W, by=cy/window.innerHeight*H, br=state.brushSize*PROC_SCALE, bv=state.editMode==='add'?1:2;
+  const x0=Math.max(0,Math.floor(bx-br)),x1=Math.min(W-1,Math.ceil(bx+br));
+  const y0=Math.max(0,Math.floor(by-br)),y1=Math.min(H-1,Math.ceil(by+br));
+  for (let y=y0;y<=y1;y++) for (let x=x0;x<=x1;x++) { const dx=x-bx,dy=y-by; if(dx*dx+dy*dy<=br*br) zone.brushMask[y*W+x]=bv; }
+  computeFloodFillMaskForZone(zone); renderAllOverlays();
+}
+brushCanvas.addEventListener('mousedown', e => { state.brushDown=true; const p=getBrushPos(e); applyBrush(p.x,p.y); });
+brushCanvas.addEventListener('mousemove', e => { const p=getBrushPos(e); brushCursor.style.left=p.x+'px'; brushCursor.style.top=p.y+'px'; if(state.brushDown) applyBrush(p.x,p.y); });
+brushCanvas.addEventListener('mouseup', () => { state.brushDown=false; });
+brushCanvas.addEventListener('touchstart', e => { e.preventDefault(); state.brushDown=true; const p=getBrushPos(e); applyBrush(p.x,p.y); }, { passive:false });
+brushCanvas.addEventListener('touchmove', e => { e.preventDefault(); const p=getBrushPos(e); brushCursor.style.left=p.x+'px'; brushCursor.style.top=p.y+'px'; if(state.brushDown) applyBrush(p.x,p.y); }, { passive:false });
+brushCanvas.addEventListener('touchend', () => { state.brushDown=false; });
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  FREEZE
+// ═══════════════════════════════════════════════════════════════════════════
+function toggleFreeze() {
+  state.frozen = !state.frozen;
+  if (state.frozen) {
+    freezePill.classList.add('freeze-on'); freezePillLbl.textContent = 'Figé';
+    freezeQBtn.classList.add('active'); setStatus('Image figée — retouchez librement', 'frozen');
+  } else {
+    freezePill.classList.remove('freeze-on'); freezePillLbl.textContent = 'Live';
+    freezeQBtn.classList.remove('active'); setStatus('Flux live', 'active');
+    state.zones.forEach(z => { z.mask = null; });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  RESET ALL
+// ═══════════════════════════════════════════════════════════════════════════
+function resetAll() {
+  state.zones.forEach(z => { if(z.labelEl) z.labelEl.remove(); });
+  state.zones = []; state.activeZoneId = null; zoneIdCounter = 0;
+  state.frozen = false; state.pendingSample = false;
+  freezePill.classList.remove('freeze-on'); freezePillLbl.textContent = 'Live'; freezeQBtn.classList.remove('active');
+  setBrushMode(null); editToolbar.classList.remove('visible');
+  document.getElementById('editQBtn').classList.remove('active');
+  closeVariantsOverlay();
+  overlayCtx && overlayCtx.clearRect(0,0,overlayCanvas.width,overlayCanvas.height);
+  if (overlayTexture) overlayTexture.needsUpdate = true;
+  state.renderer && state.renderer.render(scene, camera3);
+  setStatus('Réinitialisé', 'active');
+  crosshair.classList.add('visible'); tapHint.classList.add('visible');
+  tapHintText.textContent = 'Pointez un mur et appuyez';
+  refreshZonesUI(); updateZoneBadge(); setSheetHeight(SHEET_MID);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  COLOUR SELECTION
+// ═══════════════════════════════════════════════════════════════════════════
+function selectColor(hex, el) {
+  const z = getActiveZone();
+  if (z) { z.color = hex; renderAllOverlays(); }
+  selectedVariantColor = hex;
+  document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
+  if (el) el.classList.add('active');
+  const name = el ? el.dataset.name || 'Couleur' : 'Couleur personnalisée';
+  openVariantsOverlay(hex, name);
+}
+document.querySelectorAll('.swatch').forEach(sw => sw.addEventListener('click', () => selectColor(sw.dataset.color, sw)));
+document.getElementById('customColorPicker').addEventListener('input', e => selectColor(e.target.value, null));
+document.getElementById('toleranceSlider').addEventListener('input', e => {
+  state.tolerance = parseInt(e.target.value);
+  document.getElementById('tolDisplay').textContent = state.tolerance;
+  state.zones.forEach(z => { if(z.sampledColor) computeFloodFillMaskForZone(z); });
+  renderAllOverlays();
+});
+document.getElementById('opacitySlider').addEventListener('input', e => {
+  state.opacity = parseInt(e.target.value) / 100;
+  document.getElementById('opacityDisplay').textContent = e.target.value;
+  renderAllOverlays();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  BUTTON EVENTS
+// ═══════════════════════════════════════════════════════════════════════════
+document.getElementById('sampleBtn').addEventListener('click', () => {
+  if (state.zones.length === 0) createZone();
+  else if (!state.activeZoneId) state.activeZoneId = state.zones[0].id;
+  state.frozen = false;
+  freezePill.classList.remove('freeze-on'); freezePillLbl.textContent = 'Live'; freezeQBtn.classList.remove('active');
+  setBrushMode(null); closeVariantsOverlay(); startSamplingMode();
+});
+document.getElementById('resetBtn').addEventListener('click', resetAll);
+document.getElementById('captureBtn').addEventListener('click', async () => {
+  const cap = document.createElement('canvas');
+  cap.width = window.innerWidth; cap.height = window.innerHeight;
+  const cc = cap.getContext('2d');
+  cc.drawImage(getImageSource(), 0, 0, cap.width, cap.height);
+  if (overlayCanvas) cc.drawImage(overlayCanvas, 0, 0);
+  const showSaveToast = (icon, text) => {
+    const t = document.getElementById('saveToast');
+    document.getElementById('saveToastIcon').textContent = icon;
+    document.getElementById('saveToastText').textContent = text;
+    t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200);
+  };
+  cap.toBlob(async blob => {
+    const file = new File([blob], 'wallAR_capture.png', { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: 'WallAR', text: 'Ma simulation WallAR' }); showSaveToast('📸', 'Partagé !'); sendToFlutter('capture', {}); return; } catch (_) {}
+    }
+    const a = document.createElement('a');
+    a.download = 'wallAR_capture.png'; a.href = URL.createObjectURL(blob); a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    showSaveToast('💾', 'Image téléchargée !'); sendToFlutter('capture', {});
+  }, 'image/png');
+});
+document.getElementById('editQBtn').addEventListener('click', () => {
+  const open = editToolbar.classList.toggle('visible');
+  document.getElementById('editQBtn').classList.toggle('active', open);
+  if (!open) setBrushMode(null);
+  else { closeVariantsOverlay(); setSheetHeight(SHEET_FULL); setStatus('Choisissez Ajouter ou Exclure', 'sampling'); }
+});
+document.getElementById('freezeQBtn').addEventListener('click', toggleFreeze);
+freezePill.addEventListener('click', toggleFreeze);
+document.getElementById('btnBrushAdd').addEventListener('click', () => setBrushMode('add'));
+document.getElementById('btnBrushRemove').addEventListener('click', () => setBrushMode('remove'));
+document.getElementById('btnBrushOff').addEventListener('click', () => setBrushMode(null));
+document.getElementById('brushSizeSlider').addEventListener('input', e => {
+  state.brushSize = parseInt(e.target.value);
+  document.getElementById('brushSizeVal').textContent = state.brushSize;
+  updateBrushCursor();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  TAP HANDLER
+// ═══════════════════════════════════════════════════════════════════════════
+function onTap(cx, cy) {
+  if (state.editMode) return;
+  if (state.pendingSample) { samplePixelAt(cx, cy); return; }
+  if (state.zones.length === 0) { createZone(); samplePixelAt(cx, cy); return; }
+  if (!state.activeZoneId && state.zones.length > 0) state.activeZoneId = state.zones[0].id;
+  samplePixelAt(cx, cy);
+}
+document.body.addEventListener('click', e => {
+  if (e.target.closest('#sheet') || e.target.closest('#topBar')) return;
+  onTap(e.clientX, e.clientY);
+});
+document.body.addEventListener('touchend', e => {
+  if (e.target.closest('#sheet') || e.target.closest('#topBar')) return;
+  const t = e.changedTouches[0];
+  onTap(t.clientX, t.clientY);
+}, { passive: true });
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  SPLASH BUTTON
+// ═══════════════════════════════════════════════════════════════════════════
+document.getElementById('splashBtn').addEventListener('click', async () => {
+  setSheetHeight(SHEET_MID);
+  initThreeJS();
+  initProcessingCanvas();
+  const xrAvailable = await checkWebXRSupport();
+  if (xrAvailable) {
+    await startXRSession();
+  } else {
+    document.getElementById('splashFallback').style.display = 'block';
+    await startCameraFallback();
+    document.getElementById('splash').classList.add('hidden');
+  }
+  notifyReady();
+  setSheetHeight(SHEET_MID);
+  setTimeout(() => setStatus('✓ Prêt — pointez un mur et appuyez', 'active'), 1200);
+});
+
+// ── INIT ──
+setSheetHeight(SHEET_MID, false);
+setStatus('Appuyez sur Commencer', '');
+
+window.addEventListener('flutter-ready', e => {
+  console.log('[WallAR] Flutter platform:', e.detail?.platform);
+});
+  </script>
 </body>
 </html>
